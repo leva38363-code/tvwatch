@@ -115,6 +115,10 @@ ssh root@server 'vpnctl off friend'     # отключить
 | `app/` | приложение для macOS на SwiftUI (Swift Package) |
 | `docs/PROTOCOL.md` | описание протокола TVWP/2 |
 
+## Авторы
+
+Список авторов — в файле [AUTHORS](AUTHORS).
+
 ## Лицензия
 
 MIT
