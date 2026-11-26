@@ -1,0 +1,33 @@
+#!/usr/sbin/nft -f
+# Весь трафик телевизора (вход eth0) -> прозрачно в Xray (порт 12345).
+# Локальные адреса и DNS на самом Pi (10.42.0.1) не трогаем.
+
+table ip xray_tv
+delete table ip xray_tv
+
+table ip xray_tv {
+	set lan_iifs {
+		type ifname
+		elements = { "eth0" }
+	}
+
+	set bypass {
+		type ipv4_addr
+		flags interval
+		elements = { 0.0.0.0/8, 10.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16,
+			     172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 }
+	}
+
+	chain prerouting {
+		type filter hook prerouting priority mangle; policy accept;
+		iifname != @lan_iifs return
+		ip daddr @bypass return
+		meta l4proto { tcp, udp } meta mark set 1 tproxy to 127.0.0.1:12345 accept
+	}
+
+	chain input {
+		type filter hook input priority filter; policy accept;
+		# порт прозрачного прокси не должен быть доступен из домашней сети
+		iifname "wlan0" meta l4proto { tcp, udp } th dport 12345 drop
+	}
+}

@@ -1,0 +1,13 @@
+[Unit]
+Description=TV Watch agent (TVWP/1 on :7878)
+After=network-online.target xray.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 -u /usr/local/lib/tvwatch/tvwatch_agent.py
+Restart=always
+RestartSec=3
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

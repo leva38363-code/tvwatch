@@ -1,0 +1,133 @@
+{
+  "log": {
+    "loglevel": "info",
+    "access": "/run/xray/access.log",
+    "error": "/run/xray/error.log",
+    "dnsLog": false
+  },
+  "api": {
+    "tag": "api",
+    "listen": "127.0.0.1:10085",
+    "services": [
+      "RoutingService",
+      "StatsService"
+    ]
+  },
+  "dns": {
+    "servers": [
+      "1.1.1.1",
+      "77.88.8.8"
+    ],
+    "queryStrategy": "UseIPv4"
+  },
+  "inbounds": [
+    {
+      "tag": "tv-tproxy",
+      "listen": "0.0.0.0",
+      "port": 12345,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "network": "tcp,udp",
+        "followRedirect": true
+      },
+      "streamSettings": {
+        "sockopt": {
+          "tproxy": "tproxy"
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "routeOnly": false
+      }
+    },
+    {
+      "tag": "socks",
+      "listen": "127.0.0.1",
+      "port": 10808,
+      "protocol": "socks",
+      "settings": {
+        "auth": "noauth",
+        "udp": true
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "routeOnly": false
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    },
+    {
+      "tag": "block",
+      "protocol": "blackhole"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {
+        "ruleTag": "ads",
+        "type": "field",
+        "outboundTag": "block",
+        "domain": [
+          "geosite:category-ads-all",
+          "domain:samsungads.com",
+          "domain:samsungadhub.com",
+          "domain:samsungacr.com",
+          "domain:samsungyosemite.com",
+          "full:ads.samsung.com",
+          "domain:samsung-ads.com",
+          "full:abtauthprd.samsungcloudsolution.com",
+          "full:amauthprd.samsungcloudsolution.com",
+          "full:apu.samsungelectronics.com",
+          "full:bpu.samsungelectronics.com",
+          "full:cpu.samsungelectronics.com",
+          "full:dpu.samsungelectronics.com",
+          "full:fkp.samsungcloudsolution.com",
+          "full:fkp.samsungcloudsolution.net",
+          "full:gamespromotion.samsungcloudsolution.com",
+          "full:gld.samsungosp.com",
+          "full:kpu.samsungelectronics.com",
+          "full:musicid.samsungcloudsolution.com",
+          "full:notice.samsungcloudsolution.com",
+          "full:noticecdn.samsungcloudsolution.com",
+          "full:noticefile.samsungcloudsolution.com",
+          "full:oempprd.samsungcloudsolution.com",
+          "full:oempprd.samsungcloudsolution.net",
+          "full:openapi.samsung.com",
+          "full:osb-apps-v2.samsungqbe.com",
+          "full:osb-eusvc.samsungqbe.com",
+          "full:osb-krsvc.samsungqbe.com",
+          "full:osb.samsungqbe.com",
+          "full:prderrordumphsm.samsungcloudsolution.com",
+          "full:prov.samsungcloudsolution.com",
+          "full:samsungcloudsolution.com",
+          "full:samsungcloudsolution.net",
+          "full:samsungelectronics.com",
+          "full:samsungqbe.com",
+          "full:sas.samsungcloudsolution.com",
+          "full:sca.samsung.com",
+          "full:test.samsungrm.net",
+          "full:upu.samsungelectronics.com",
+          "full:vdterms.samsungcloudsolution.com",
+          "full:xpu.samsungelectronics.com",
+          "full:ypu.samsungelectronics.com",
+          "full:zpu.samsungelectronics.com"
+        ]
+      }
+    ]
+  }
+}

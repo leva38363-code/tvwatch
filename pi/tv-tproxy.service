@@ -1,0 +1,18 @@
+[Unit]
+Description=Route TV (eth0) traffic into Xray via TPROXY
+After=network.target xray.service
+Wants=xray.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /usr/local/etc/xray/tv-tproxy.nft
+ExecStart=-/usr/sbin/ip rule del fwmark 1 table 100
+ExecStart=/usr/sbin/ip rule add fwmark 1 table 100
+ExecStart=/usr/sbin/ip route replace local 0.0.0.0/0 dev lo table 100
+ExecStop=-/usr/sbin/nft delete table ip xray_tv
+ExecStop=-/usr/sbin/ip rule del fwmark 1 table 100
+ExecStop=-/usr/sbin/ip route flush table 100
+
+[Install]
+WantedBy=multi-user.target
