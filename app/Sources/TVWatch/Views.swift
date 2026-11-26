@@ -11,26 +11,26 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $section) {
-                Section("Наблюдение") {
-                    Label("Поток запросов", systemImage: "waveform.path.ecg").tag(NavSection.live)
-                    Label("Домены", systemImage: "chart.bar.xaxis").tag(NavSection.domains)
+                Section("Что происходит") {
+                    Label("Живая лента", systemImage: "waveform.path.ecg").tag(NavSection.live)
+                    Label("Сайты", systemImage: "chart.bar.xaxis").tag(NavSection.domains)
                 }
-                Section("Фильтры на Pi") {
+                Section("Правила") {
                     ForEach(ListKind.allCases) { k in
                         Label(k.title, systemImage: k.icon)
                             .badge(store.lists[k]?.count ?? 0)
                             .tag(NavSection.list(k))
                     }
-                    Label("Скрытые в ленте", systemImage: "eye.slash")
+                    Label("Скрытые", systemImage: "eye.slash")
                         .badge(store.config.hidden.count)
                         .tag(NavSection.hidden)
                 }
-                Section("VPN") {
-                    Label("Выбор сервера", systemImage: "server.rack")
-                        .badge(store.selectedServer.isEmpty ? Text("авто") : Text("ручной"))
+                Section("Подключение") {
+                    Label("Сервер", systemImage: "server.rack")
+                        .badge(store.selectedServer.isEmpty ? Text("сам") : Text("вручную"))
                         .tag(NavSection.servers)
-                    Label("Подписка и серверы", systemImage: "antenna.radiowaves.left.and.right").tag(NavSection.subscription)
-                    Label("Состояние Pi", systemImage: "cpu").tag(NavSection.status)
+                    Label("Обновления", systemImage: "antenna.radiowaves.left.and.right").tag(NavSection.subscription)
+                    Label("Состояние", systemImage: "cpu").tag(NavSection.status)
                 }
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 230)
