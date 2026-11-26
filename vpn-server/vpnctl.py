@@ -11,12 +11,12 @@
     vpnctl apply                            — пересобрать конфиг и перезапустить Xray
 
 Протоколы (все через TLS 1.3 / AEAD; REALITY маскируется под настоящий сайт):
-    443/tcp   VLESS + Vision + REALITY (www.samsung.com)       — самый совместимый (внутри 2443)
+    443/tcp   VLESS + Vision + REALITY (www.scaleway.com)       — самый совместимый (внутри 2443)
     2053/tcp  VLESS + XHTTP + REALITY + ML-KEM-768 (microsoft) — постквантовый
     2083/tcp  Trojan + REALITY (dl.google.com)
     2087/tcp  VLESS + Vision + REALITY (max.ru)                — маскировка под белый список
     2096/tcp  VLESS + XHTTP + REALITY + ML-KEM-768 (ozon.ru)   — белый список + постквантовый
-    443/udp   Hysteria 2 (QUIC) (внутри 8443/udp)
+    443/udp   Hysteria 2 (QUIC), сертификат vpn.invalid (внутри 8443/udp)
 """
 import base64, datetime, json, os, secrets, subprocess, sys, urllib.parse
 
@@ -29,7 +29,7 @@ SERVICE = "xray-vpn"
 
 INBOUNDS = [
     # tag,          port, proto,    net,     sni,                  pq_enc, flow
-    ("fi-vision",   2443, "vless",  "raw",   "www.samsung.com",    False, "xtls-rprx-vision"),
+    ("fi-vision",   2443, "vless",  "raw",   "www.scaleway.com",   False, "xtls-rprx-vision"),
     ("fi-pq",       2053, "vless",  "xhttp", "www.microsoft.com",  True,  ""),
     ("fi-trojan",   2083, "trojan", "raw",   "dl.google.com",      False, ""),
     ("wl-vision",   2087, "vless",  "raw",   "max.ru",             False, "xtls-rprx-vision"),
@@ -83,7 +83,7 @@ def init(host):
     dec_s = pq.split('"decryption": "', 1)[1].split('"', 1)[0]
     enc_s = pq.split('"encryption": "', 1)[1].split('"', 1)[0]
     subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
-                    "-nodes", "-days", "3650", "-subj", "/CN=www.samsung.com", "-keyout", KEY, "-out", CERT],
+                    "-nodes", "-days", "3650", "-subj", "/CN=vpn.invalid", "-keyout", KEY, "-out", CERT],
                    check=True, capture_output=True)
     os.chmod(KEY, 0o640)
     try:
@@ -189,7 +189,7 @@ def links(st, u):
         else:
             cred = urllib.parse.quote(u["trojan"], safe="")
         out.append(f"{proto}://{cred}@{h}:{PUBLIC.get(tag, port)}?{urllib.parse.urlencode(q)}#{urllib.parse.quote(TITLES[tag])}")
-    hq = {"sni": "www.samsung.com", "insecure": "1", "pinSHA256": st["hy2_pin_sha256"], "alpn": "h3"}
+    hq = {"sni": "vpn.invalid", "insecure": "1", "pinSHA256": st["hy2_pin_sha256"], "alpn": "h3"}
     out.append(f"hysteria2://{u['uuid']}@{h}:{PUBLIC.get('hy2', HY2_PORT)}?{urllib.parse.urlencode(hq)}#{urllib.parse.quote(TITLES['hy2'])}")
     return out
 
@@ -212,7 +212,7 @@ def client_outbounds(st, u):
     outs.append({"tag": "hy2", "protocol": "hysteria", "settings": {"version": 2, "address": h, "port": PUBLIC.get("hy2", HY2_PORT)},
                  "streamSettings": {"network": "hysteria", "hysteriaSettings": {"version": 2, "auth": u["uuid"]},
                                     "security": "tls", "tlsSettings": {
-                                        "serverName": "www.samsung.com", "alpn": ["h3"],
+                                        "serverName": "vpn.invalid", "alpn": ["h3"],
                                         "pinnedPeerCertSha256": st["hy2_pin_sha256"]}}})
     return outs
 
