@@ -70,6 +70,33 @@ open TVWatch.app
 
 Соедини ТВ и Pi кабелем, в настройках сети ТВ выбери «Кабель», всё автоматически.
 
+
+## Свой VPN-сервер (`vpn-server/`)
+
+Xray на своём VPS за пределами РФ, несколько протоколов, у каждого человека свой ключ:
+
+| Порт | Протокол |
+|---|---|
+| 443/tcp | VLESS + Vision + REALITY (маскировка под www.samsung.com) |
+| 443/udp | Hysteria 2 |
+| 2053 | VLESS + XHTTP + REALITY + **ML-KEM-768** (постквантовое шифрование VLESS) |
+| 2083 | Trojan + REALITY |
+| 2087 | VLESS + Vision + REALITY (маскировка под max.ru) |
+| 2096 | VLESS + XHTTP + REALITY + ML-KEM-768 (маскировка под ozon.ru) |
+
+REALITY с подписью **ML-DSA-65** и обменом ключами X25519MLKEM768 (отпечаток chrome); через VPN закрыт доступ
+к внутренним службам сервера, торренты и почтовые порты; журнал посещений не ведётся.
+
+```bash
+scp vpn-server/* root@server:/tmp/vpn/ && ssh root@server 'bash /tmp/vpn/install.sh <публичный-IP> me'
+ssh root@server 'vpnctl add friend'     # новый человек → ссылки
+ssh root@server 'vpnctl links friend'   # ссылки для Happ / v2RayTun / Hiddify
+ssh root@server 'vpnctl off friend'     # отключить
+```
+
+Порт 443 обычно занят веб-сервером — либо выдели VPN отдельный IP и перенаправь его 443 на внутренние порты
+(`2443/tcp`, `8443/udp`), либо поменяй `PUBLIC` в `vpnctl.py`. Не забудь открыть порты в фаерволе.
+
 ## Важно
 
 - **Используй только свою подписку** и в рамках правил своего VPN-провайдера. Проект не раздаёт VPN другим людям.
@@ -84,6 +111,7 @@ open TVWatch.app
 | `agent/` | `tvwatch_agent.py` — агент на Pi (Python 3.11+, `python3-cryptography`, OpenSSL 3.5+), `tvwp_crypto.py`, установщик, функциональные тесты и тест безопасности |
 | `pi/` | systemd-службы, правила nftables (TPROXY), базовый конфиг Xray, `setup_pi.sh` |
 | `relay/` | ретранслятор подписки для своего сервера |
+| `vpn-server/` | свой VPN-сервер: установщик и `vpnctl` (пользователи, ссылки) |
 | `app/` | приложение для macOS на SwiftUI (Swift Package) |
 | `docs/PROTOCOL.md` | описание протокола TVWP/2 |
 
