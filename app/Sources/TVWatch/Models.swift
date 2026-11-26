@@ -190,13 +190,21 @@ struct AppConfig: Codable {
     }
 
     static func load() -> AppConfig {
-        guard let d = try? Data(contentsOf: url), let c = try? JSONDecoder().decode(AppConfig.self, from: d) else { return AppConfig() }
+        guard let d = try? Data(contentsOf: url), var c = try? JSONDecoder().decode(AppConfig.self, from: d) else { return AppConfig() }
+        if !c.key.isEmpty {
+            c.save()                       // старый формат: перенести ключ из файла в Связку ключей
+        } else {
+            c.key = Keychain.get(account: "tvwp") ?? ""
+        }
         return c
     }
 
     func save() {
+        if !key.isEmpty { Keychain.set(key, account: "tvwp") }
+        var onDisk = self
+        onDisk.key = ""                    // в файле ключа нет
         let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let d = try? enc.encode(self) else { return }
+        guard let d = try? enc.encode(onDisk) else { return }
         try? d.write(to: Self.url, options: .atomic)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Self.url.path)
     }

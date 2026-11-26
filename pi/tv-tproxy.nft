@@ -29,5 +29,7 @@ table ip xray_tv {
 		type filter hook input priority filter; policy accept;
 		# порт прозрачного прокси не должен быть доступен из домашней сети
 		iifname "wlan0" meta l4proto { tcp, udp } th dport 12345 drop
+		# агент TV Watch (TVWP) не доступен со стороны телевизора
+		iifname @lan_iifs tcp dport 7878 drop
 	}
 }

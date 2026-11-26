@@ -10,6 +10,11 @@ cd "$(dirname "$0")/.."
 RELAY=""
 [ "${1:-}" = "--relay" ] && RELAY="${2:?укажи user@host[:port]}"
 
+echo "== зависимости =="
+# TVWP/2: ML-KEM-1024 нужен OpenSSL >= 3.5, ChaCha20-Poly1305 — python3-cryptography
+command -v openssl >/dev/null && python3 -c "import cryptography" 2>/dev/null || apt-get install -y openssl python3-cryptography
+openssl list -kem-algorithms | grep -q ML-KEM-1024 || { echo "нужен OpenSSL 3.5+ с ML-KEM (Debian 13 trixie)"; exit 1; }
+
 echo "== Xray =="
 if ! command -v xray >/dev/null; then
   T=$(mktemp -d)

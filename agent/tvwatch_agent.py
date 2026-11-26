@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tvwatch-agent: следит за соединениями телевизора через Xray и отдаёт их по протоколу TVWP/1.
+"""tvwatch-agent: следит за соединениями телевизора через Xray и отдаёт их по протоколу TVWP/2.
 
 Только стандартная библиотека Python 3.11+. Запускается от root (systemd).
 """
@@ -17,7 +17,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import zlib
 
 XRAY_CFG = "/usr/local/etc/xray/config.json"
 STATE_DIR = "/usr/local/etc/tvwatch"
@@ -40,12 +39,14 @@ BACKLOG = 3000
 LIST_NAMES = ("block", "direct", "vpn")
 TV_INBOUND = "tv-tproxy"
 
-# ---------------------------------------------------------------- протокол
-MAGIC = b"TW"
-VER = 1
-HDR = struct.Struct(">2sBBBBII")
-TAG_LEN = 16
-MAX_LEN = 8 * 1024 * 1024
+# ---------------------------------------------------------------- протокол TVWP/2
+import ipaddress
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tvwp_crypto as C  # noqa: E402
+
+VER = C.VERSION
+HDR = C.HDR
 T = dict(HELLO=0x01, AUTH=0x02, AUTH_OK=0x03, AUTH_FAIL=0x04, ACK=0x05, ERROR=0x06,
          SUBSCRIBE=0x10, EVENT=0x11, EVENT_BATCH=0x12, UNSUBSCRIBE=0x13,
          LISTS_GET=0x20, LISTS=0x21, LIST_EDIT=0x22,
@@ -53,77 +54,86 @@ T = dict(HELLO=0x01, AUTH=0x02, AUTH_OK=0x03, AUTH_FAIL=0x04, ACK=0x05, ERROR=0x
          SERVERS_GET=0x50, SERVERS=0x51, SERVER_SELECT=0x52, SERVER_TEST=0x53, SERVER_TEST_RESULT=0x54,
          SUB_GET=0x60, SUB_PROFILES=0x61, SUB_REFRESH=0x62, SUB_SELECT=0x63,
          PING=0x7E, PONG=0x7F)
-FLAG_ZLIB = 0x01
+HANDSHAKE_TIMEOUT = 5
+MAX_CLIENTS = 8              # всего одновременных соединений
+MAX_UNAUTH = 4               # из них ещё не прошедших вход
+MAX_UNAUTH_PER_IP = 2
+DENY_NETS = [ipaddress.ip_network("10.42.0.0/24")]   # сторона телевизора: агенту оттуда делать нечего
 
 
 def log(*a):
     print(time.strftime("%H:%M:%S"), *a, flush=True)
 
 
-def hm(key, *parts):
-    return hmac.new(key, b"".join(parts), hashlib.sha256).digest()
-
-
 class Conn:
-    """Одно соединение по TVWP/1."""
+    """Одно соединение по TVWP/2: рукопожатие PSK + ML-KEM-1024, дальше ChaCha20-Poly1305."""
 
     def __init__(self, reader, writer, agent):
         self.r, self.w, self.agent = reader, writer, agent
-        self.skey = None
+        self.chan = None             # Channel после входа
         self.tx_seq = 0
-        self.rx_seq = -1
+        self.rx_seq = 0
         self.subscribed = False
         self.lock = asyncio.Lock()
         self.peer = writer.get_extra_info("peername")
 
+    @property
+    def authed(self):
+        return self.chan is not None
+
     async def send(self, mtype, obj):
         raw = json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode()
-        flags = 0
-        if len(raw) > 4096:
-            raw, flags = zlib.compress(raw, 6), FLAG_ZLIB
         async with self.lock:
             self.tx_seq += 1
-            hdr = HDR.pack(MAGIC, VER, mtype, flags, 0, self.tx_seq, len(raw))
-            tag = hm(self.skey, hdr, raw)[:TAG_LEN] if self.skey else bytes(TAG_LEN)
-            self.w.write(hdr + raw + tag)
+            if self.chan:
+                data = self.chan.seal(mtype, self.tx_seq, raw)
+            else:
+                data = C.plain_frame(mtype, self.tx_seq, raw)
+            self.w.write(data)
             await self.w.drain()
         return self.tx_seq
 
     async def recv(self):
         hdr = await self.r.readexactly(HDR.size)
         magic, ver, mtype, flags, _, seq, ln = HDR.unpack(hdr)
-        if magic != MAGIC or ver != VER or ln > MAX_LEN:
+        limit = C.FRAME_MAX if self.chan else C.PREAUTH_MAX
+        if magic != C.MAGIC or ver != VER or ln > limit:
             raise ValueError("bad frame")
-        raw = await self.r.readexactly(ln)
-        tag = await self.r.readexactly(TAG_LEN)
-        if self.skey:
-            if not hmac.compare_digest(tag, hm(self.skey, hdr, raw)[:TAG_LEN]):
-                raise ValueError("bad tag")
-            if seq <= self.rx_seq:
-                raise ValueError("replay")
+        if seq <= self.rx_seq:
+            raise ValueError("replay")
+        body = await self.r.readexactly(ln)
+        if self.chan:
+            if not flags & C.FLAG_ENC:
+                raise ValueError("unencrypted frame after auth")
+            body = self.chan.open(hdr, seq, body)      # InvalidTag → разрыв
+        elif flags:
+            raise ValueError("flags before auth")
         self.rx_seq = seq
-        if flags & FLAG_ZLIB:
-            raw = zlib.decompress(raw)
-        return mtype, seq, (json.loads(raw) if raw else {})
+        return mtype, seq, (json.loads(body) if body else {})
 
     async def handshake(self):
-        ns = secrets.token_bytes(16)
-        await self.send(T["HELLO"], {"server": "tvwatch-agent", "ver": VER, "nonce": ns.hex()})
-        mtype, _, m = await asyncio.wait_for(self.recv(), 10)
+        psk = self.agent.key
+        ns = secrets.token_bytes(32)
+        await self.send(T["HELLO"], {"server": "tvwatch-agent", "ver": VER, "kem": C.KEM_ALG, "nonce": C.b64(ns)})
+        mtype, _, m = await asyncio.wait_for(self.recv(), HANDSHAKE_TIMEOUT)
         if mtype != T["AUTH"]:
             raise ValueError("expected AUTH")
-        nc = bytes.fromhex(m["nonce"])
-        key = self.agent.key
-        if len(nc) != 16 or not hmac.compare_digest(bytes.fromhex(m["mac"]), hm(key, b"TVWP1-client|", ns, nc)):
+        nc = C.unb64(m.get("nonce"), 64)
+        kem_pub = C.unb64(m.get("kem_pub"), 2200)
+        cmac = C.unb64(m.get("mac"), 64)
+        if len(nc) != 32 or len(kem_pub) != C.KEM_PUB_LEN or \
+                not hmac.compare_digest(cmac, C.client_mac(psk, ns, nc, kem_pub)):
             await self.send(T["AUTH_FAIL"], {"reason": "bad mac"})
             raise ValueError("auth failed")
-        await self.send(T["AUTH_OK"], {"proof": hm(key, b"TVWP1-server|", nc, ns).hex()})
-        self.skey = hm(key, b"TVWP1-session|", ns, nc)
+        ct, ss = await asyncio.to_thread(C.kem_encapsulate, kem_pub)
+        await self.send(T["AUTH_OK"], {"ct": C.b64(ct), "proof": C.b64(C.server_proof(psk, ns, nc, kem_pub, ct))})
+        c2s, s2c = C.session_keys(psk, ss, ns, nc, kem_pub, ct)
+        self.chan = C.Channel(k_send=s2c, k_recv=c2s)
 
     async def run(self):
         try:
             await self.handshake()
-            log("client", self.peer, "authenticated")
+            log("client", self.peer, "authenticated (TVWP/2, ML-KEM-1024)")
             while True:
                 mtype, seq, m = await self.recv()
                 try:
@@ -134,7 +144,7 @@ class Conn:
         except (asyncio.IncompleteReadError, ConnectionError, asyncio.TimeoutError):
             pass
         except Exception as e:
-            log("client", self.peer, "dropped:", e)
+            log("client", self.peer, "dropped:", type(e).__name__, str(e)[:120])
         finally:
             self.agent.clients.discard(self)
             self.w.close()
@@ -658,7 +668,7 @@ class Agent:
     # --- события
     async def broadcast(self, mtype, obj, subscribed_only=True):
         for c in list(self.clients):
-            if c.skey and (c.subscribed or not subscribed_only):
+            if c.authed and (c.subscribed or not subscribed_only):
                 try:
                     await c.send(mtype, obj)
                 except Exception:
@@ -767,11 +777,19 @@ class Agent:
 
     async def serve(self):
         async def on_client(r, w):
+            peer = w.get_extra_info("peername") or ("0.0.0.0", 0)
+            ip = ipaddress.ip_address(peer[0])
+            unauth = [c for c in self.clients if not c.authed]
+            if any(ip in n for n in DENY_NETS) or len(self.clients) >= MAX_CLIENTS or len(unauth) >= MAX_UNAUTH \
+                    or sum(1 for c in unauth if c.peer and c.peer[0] == peer[0]) >= MAX_UNAUTH_PER_IP:
+                w.close()
+                return
             c = Conn(r, w, self)
             self.clients.add(c)
             await c.run()
+        C.spki_prefix()   # прогреть OpenSSL ML-KEM заранее
         srv = await asyncio.start_server(on_client, "0.0.0.0", PORT)
-        log(f"TVWP/1 listening on :{PORT}")
+        log(f"TVWP/2 (ML-KEM-1024 + ChaCha20-Poly1305) listening on :{PORT}")
         async with srv:
             await asyncio.gather(srv.serve_forever(), self.tail_loop(), self.rotate_loop(), self.override_loop(),
                                  self.refresh_loop())

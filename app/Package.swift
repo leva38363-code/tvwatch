@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "TVWatch",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("26.0")],
     targets: [
         .executableTarget(name: "TVWatch", path: "Sources/TVWatch")
     ],

@@ -5,13 +5,13 @@ Raspberry Pi как «умный роутер» для телевизора: в�
 и позволяет **правой кнопкой мыши** блокировать домены, пускать их мимо VPN или наоборот только через VPN.
 
 *Raspberry Pi as a transparent VPN gateway for a smart TV, with live request monitoring, per-domain rules
-and ad/telemetry blocking, controlled from a native macOS app over a small custom protocol (TVWP/1).*
+and ad/telemetry blocking, controlled from a native macOS app over a small post-quantum custom protocol (TVWP/2: ML-KEM-1024 + PSK, ChaCha20-Poly1305).*
 
 ```
                  Wi-Fi                     Ethernet
  интернет ◀──── Raspberry Pi ◀──────────── телевизор
                   │  Xray: VPN + блокировка рекламы + твои правила
-                  │  tvwatch-agent  ◀── TVWP/1 (TCP 7878) ──  TV Watch.app (macOS)
+                  │  tvwatch-agent  ◀── TVWP/2 (TCP 7878) ──  TV Watch.app (macOS)
                   └── SSH ──▶ твой сервер (relay) ──▶ провайдер VPN (подписка с HWID)
 ```
 
@@ -24,14 +24,14 @@ and ad/telemetry blocking, controlled from a native macOS app over a small custo
 - **Выбор сервера** вручную или автовыбор, проверка задержки каждого сервера (не мешает телевизору).
 - **Подписка через свой сервер**: Pi по SSH просит твой сервер скачать подписку с HWID. HWID и ссылка подписки живут только на сервере; ключ Pi там может выполнить ровно одну команду.
 - **Полноэкранный режим**: панель трафика — сколько ТВ получил и отправил, график скорости, частые сайты, серверы.
-- **Свой протокол TVWP/1**: двоичные кадры + JSON, взаимная аутентификация по общему ключу (HMAC-SHA256), подпись каждого кадра, защита от повтора. См. [docs/PROTOCOL.md](docs/PROTOCOL.md).
+- **Свой протокол TVWP/2, постквантовый**: обмен ключами ML-KEM-1024 + общий ключ (гибрид), шифрование ChaCha20-Poly1305, прямая секретность, защита от повтора и перегрузки. См. [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## Что нужно
 
 - Raspberry Pi 4/5 с Raspberry Pi OS (64-bit), подключённый к домашнему Wi-Fi, и кабель Ethernet до телевизора.
 - Своя VPN-подписка в формате JSON-конфигов Xray (как у клиентов Happ / v2rayN).
 - Свой сервер с SSH (любой VPS) — для ретранслятора подписки. Можно и без него: тогда подписку на Pi придётся класть вручную.
-- Mac с macOS 14+ и Xcode Command Line Tools (Swift 6) — собрать приложение.
+- Mac с macOS 26+ (нужен CryptoKit с ML-KEM) и Xcode Command Line Tools (Swift 6) — собрать приложение.
 
 ## Установка
 
@@ -73,18 +73,19 @@ open TVWatch.app
 ## Важно
 
 - **Используй только свою подписку** и в рамках правил своего VPN-провайдера. Проект не раздаёт VPN другим людям.
-- Протокол TVWP/1 подписывает, но **не шифрует** трафик — он рассчитан на домашнюю сеть. Не открывай порт 7878 в интернет.
+- Протокол TVWP/2 шифрует трафик, но рассчитан на домашнюю сеть: не открывай порт 7878 в интернет.
+- Проверка безопасности протокола: `sudo python3 agent/tvwp_security_test.py <ip-pi>` (на Pi).
 - HTTPS телевизора не расшифровывается: видны только домены (SNI), IP и объём трафика.
 
 ## Структура
 
 | Папка | Что внутри |
 |---|---|
-| `agent/` | `tvwatch_agent.py` — агент на Pi (только stdlib Python 3.11+), установщик, тесты протокола |
+| `agent/` | `tvwatch_agent.py` — агент на Pi (Python 3.11+, `python3-cryptography`, OpenSSL 3.5+), `tvwp_crypto.py`, установщик, функциональные тесты и тест безопасности |
 | `pi/` | systemd-службы, правила nftables (TPROXY), базовый конфиг Xray, `setup_pi.sh` |
 | `relay/` | ретранслятор подписки для своего сервера |
 | `app/` | приложение для macOS на SwiftUI (Swift Package) |
-| `docs/PROTOCOL.md` | описание протокола TVWP/1 |
+| `docs/PROTOCOL.md` | описание протокола TVWP/2 |
 
 ## Лицензия
 
